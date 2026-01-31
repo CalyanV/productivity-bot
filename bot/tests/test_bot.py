@@ -37,3 +37,50 @@ async def test_start_command():
     call_args = update.message.reply_text.call_args[0][0]
     assert "Test User" in call_args
     assert "productivity" in call_args.lower()
+
+@pytest.mark.asyncio
+async def test_bot_with_calendar():
+    """Test bot initialization with calendar integration"""
+    bot = ProductivityBot(
+        token="test_token",
+        db_path=":memory:",
+        vault_path="/tmp/vault",
+        calendar_client_id="test_client_id",
+        calendar_client_secret="test_client_secret",
+        calendar_refresh_token="test_refresh_token"
+    )
+
+    assert bot.calendar is not None
+    assert bot.calendar.client_id == "test_client_id"
+
+@pytest.mark.asyncio
+async def test_bot_without_calendar():
+    """Test bot initialization without calendar integration"""
+    bot = ProductivityBot(
+        token="test_token",
+        db_path=":memory:",
+        vault_path="/tmp/vault"
+    )
+
+    assert bot.calendar is None
+
+@pytest.mark.asyncio
+async def test_schedule_command_without_calendar():
+    """Test /schedule command when calendar not configured"""
+    bot = ProductivityBot(
+        token="test_token",
+        db_path=":memory:",
+        vault_path="/tmp/vault"
+    )
+
+    update = MagicMock()
+    update.message.reply_text = AsyncMock()
+    context = MagicMock()
+    context.args = ["task-123"]
+
+    await bot.cmd_schedule(update, context)
+
+    # Verify error message sent
+    update.message.reply_text.assert_called_once()
+    call_args = update.message.reply_text.call_args[0][0]
+    assert "not configured" in call_args.lower()
