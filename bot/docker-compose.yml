@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  productivity-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: productivity-bot
+    restart: unless-stopped
+
+    environment:
+      # Telegram
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+
+      # Database
+      - DATABASE_PATH=/app/data/bot.db
+
+      # Obsidian vault
+      - VAULT_PATH=/app/obsidian-vault
+
+      # LLM (OpenRouter)
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - PRIMARY_MODEL=deepseek/deepseek-chat
+      - FALLBACK_MODEL=anthropic/claude-3.5-sonnet
+
+      # Google Calendar (optional)
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_REFRESH_TOKEN=${GOOGLE_REFRESH_TOKEN:-}
+
+      # Notifications (optional)
+      - NTFY_URL=${NTFY_URL:-https://ntfy.sh}
+      - NTFY_TOPIC=${NTFY_TOPIC:-}
+
+      # Git sync (optional)
+      - GIT_REMOTE_URL=${GIT_REMOTE_URL:-}
+      - GIT_SYNC_ENABLED=${GIT_SYNC_ENABLED:-false}
+
+      # Timezone
+      - TZ=${TIMEZONE:-America/New_York}
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+    volumes:
+      # Persistent data
+      - ./data:/app/data
+
+      # Obsidian vault (can be synced via git)
+      - ./obsidian-vault:/app/obsidian-vault
+
+      # Git credentials (if using git sync)
+      - ~/.ssh:/home/botuser/.ssh:ro
+
+    networks:
+      - productivity-net
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  productivity-net:
+    driver: bridge
+
+volumes:
+  bot-data:
+    driver: local
