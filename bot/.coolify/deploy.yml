@@ -1,0 +1,146 @@
+# Coolify deployment configuration
+# https://coolify.io/docs
+
+version: '1.0'
+
+name: productivity-bot
+description: Self-Auditing Productivity System - Telegram Bot
+
+# Build configuration
+build:
+  dockerfile: Dockerfile
+  context: .
+  buildArgs: []
+
+# Runtime configuration
+runtime:
+  # Container settings
+  image: productivity-bot:latest
+  restart: unless-stopped
+
+  # Resource limits
+  resources:
+    limits:
+      memory: 512M
+      cpus: '1.0'
+    reservations:
+      memory: 256M
+      cpus: '0.25'
+
+  # Health check
+  healthcheck:
+    test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 40s
+
+# Environment variables
+environment:
+  # Required
+  - name: TELEGRAM_BOT_TOKEN
+    required: true
+    description: Telegram bot API token from @BotFather
+
+  - name: OPENROUTER_API_KEY
+    required: true
+    description: OpenRouter API key for LLM access
+
+  # Database
+  - name: DATABASE_PATH
+    value: /app/data/bot.db
+    description: SQLite database file path
+
+  # Vault
+  - name: VAULT_PATH
+    value: /app/obsidian-vault
+    description: Obsidian vault directory path
+
+  # LLM Models
+  - name: PRIMARY_MODEL
+    value: deepseek/deepseek-chat
+    description: Primary LLM model (cheap, fast)
+
+  - name: FALLBACK_MODEL
+    value: anthropic/claude-3.5-sonnet
+    description: Fallback LLM model (smart, expensive)
+
+  # Google Calendar (Optional)
+  - name: GOOGLE_CLIENT_ID
+    required: false
+    description: Google OAuth client ID
+
+  - name: GOOGLE_CLIENT_SECRET
+    required: false
+    description: Google OAuth client secret
+
+  - name: GOOGLE_REFRESH_TOKEN
+    required: false
+    description: Google OAuth refresh token
+
+  # Notifications (Optional)
+  - name: NTFY_URL
+    value: https://ntfy.sh
+    description: ntfy.sh server URL
+
+  - name: NTFY_TOPIC
+    required: false
+    description: ntfy.sh topic for notifications
+
+  # Git Sync (Optional)
+  - name: GIT_SYNC_ENABLED
+    value: 'false'
+    description: Enable git synchronization
+
+  - name: GIT_REMOTE_URL
+    required: false
+    description: Git remote URL for vault sync
+
+  - name: GIT_BRANCH
+    value: master
+    description: Git branch to sync
+
+  # Admin
+  - name: TELEGRAM_ADMIN_CHAT_ID
+    required: false
+    description: Telegram chat ID for admin/scheduler
+
+  # System
+  - name: TZ
+    value: America/New_York
+    description: Timezone for scheduling
+
+  - name: LOG_LEVEL
+    value: INFO
+    description: Logging level (DEBUG, INFO, WARNING, ERROR)
+
+# Persistent volumes
+volumes:
+  - name: bot-data
+    path: /app/data
+    description: Bot database and logs
+
+  - name: obsidian-vault
+    path: /app/obsidian-vault
+    description: Obsidian markdown vault
+
+# Networks
+networks:
+  - productivity-net
+
+# Ports (none - bot doesn't expose HTTP)
+ports: []
+
+# Post-deployment commands
+postDeploy:
+  - echo "Bot deployed successfully"
+  - echo "Check logs with: docker logs productivity-bot"
+
+# Backup configuration
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  paths:
+    - /app/data/bot.db
+    - /app/obsidian-vault
+  retention: 30  # Keep 30 days of backups
