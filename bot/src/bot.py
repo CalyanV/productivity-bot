@@ -14,6 +14,7 @@ from .obsidian_sync import ObsidianSync
 from .calendar_integration import CalendarIntegration
 from .people import PeopleManager
 from .personality import BotPersonality
+from .settings import UserSettings
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class ProductivityBot:
         self.db = Database(db_path)
         self.vault_sync = ObsidianSync(vault_path)
         self.people_manager = PeopleManager(db_path, vault_path)
+        self.user_settings = UserSettings(db_path)
 
         # Initialize calendar integration if credentials provided
         self.calendar = None
@@ -75,6 +77,9 @@ class ProductivityBot:
         self.app.add_handler(CommandHandler("people", self.cmd_people))
         self.app.add_handler(CommandHandler("person", self.cmd_person))
         self.app.add_handler(CommandHandler("contact", self.cmd_contact))
+
+        # Settings command
+        self.app.add_handler(CommandHandler("settings", self.cmd_settings))
 
         # Messages (for conversation flow)
         self.app.add_handler(
@@ -137,7 +142,10 @@ Get started:
 
 **Daily Workflow:**
 /morning - Morning check-in
-/evening - Evening review"""
+/evening - Evening review
+
+**Preferences:**
+/settings - View and update your preferences"""
 
         await update.message.reply_text(message, parse_mode="Markdown")
 
@@ -500,6 +508,105 @@ Other available slots:"""
             logger.error(f"Error updating contact: {e}", exc_info=True)
             await update.message.reply_text(f"❌ Error: {str(e)}")
 
+    async def cmd_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /settings command - View and update preferences"""
+        try:
+            await self.user_settings.initialize()
+            user_id = update.effective_user.id
+
+            # No args - show current settings
+            if not context.args:
+                settings = await self.user_settings.get_settings(user_id)
+                message = self.user_settings.format_settings_message(settings)
+                await update.message.reply_text(message, parse_mode="Markdown")
+                return
+
+            # Check for reset command
+            if context.args[0] == "reset":
+                settings = await self.user_settings.reset_settings(user_id)
+                await update.message.reply_text(
+                    "✅ Settings reset to defaults!\n\n" +
+                    self.user_settings.format_settings_message(settings),
+                    parse_mode="Markdown"
+                )
+                return
+
+            # Update specific setting: /settings <key> <value>
+            if len(context.args) < 2:
+                await update.message.reply_text(
+                    "Usage:\n"
+                    "/settings - View current settings\n"
+                    "/settings <key> <value> - Update a setting\n"
+                    "/settings reset - Reset to defaults\n\n"
+                    "Examples:\n"
+                    "/settings timezone America/Los_Angeles\n"
+                    "/settings morning_checkin_time 05:00\n"
+                    "/settings work_hours_start 8"
+                )
+                return
+
+            key = context.args[0]
+            value_str = " ".join(context.args[1:])
+
+            # Parse value based on key type
+            value = self._parse_setting_value(key, value_str)
+
+            if value is None:
+                await update.message.reply_text(
+                    f"❌ Invalid value for {key}: {value_str}\n\n"
+                    "Please check the format and try again."
+                )
+                return
+
+            # Update setting
+            updated_settings = await self.user_settings.update_settings(
+                user_id,
+                {key: value}
+            )
+
+            completion_msg = BotPersonality.get_completion_message()
+            await update.message.reply_text(
+                f"{completion_msg} Updated {key} to {value}\n\n"
+                f"Current settings:\n{self.user_settings.format_settings_message(updated_settings)}",
+                parse_mode="Markdown"
+            )
+
+            logger.info(f"Updated setting {key}={value} for user {user_id}")
+
+        except Exception as e:
+            logger.error(f"Error handling settings: {e}", exc_info=True)
+            await update.message.reply_text(
+                BotPersonality.format_error(
+                    f"Error updating settings: {str(e)}",
+                    "Use /settings to see available options"
+                )
+            )
+
+    def _parse_setting_value(self, key: str, value_str: str):
+        """Parse setting value from string"""
+        # Boolean fields
+        if key in ["periodic_checkin_enabled", "exclude_weekends"]:
+            if value_str.lower() in ["true", "yes", "on", "1", "enabled"]:
+                return True
+            elif value_str.lower() in ["false", "no", "off", "0", "disabled"]:
+                return False
+            return None
+
+        # Integer fields
+        if key in ["periodic_checkin_interval_hours", "periodic_checkin_start_hour",
+                   "periodic_checkin_end_hour", "work_hours_start", "work_hours_end"]:
+            try:
+                return int(value_str)
+            except ValueError:
+                return None
+
+        # List fields (tags)
+        if key == "notification_tags":
+            return [tag.strip() for tag in value_str.split(",")]
+
+        # String fields (timezone, times, priority, language)
+        return value_str
+
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle non-command messages"""
         # For now, treat as task add
@@ -514,6 +621,7 @@ Other available slots:"""
         """Initialize bot (database, etc.)"""
         await self.db.initialize()
         await self.people_manager.initialize()
+        await self.user_settings.initialize()
         logger.info("Bot initialized")
 
     async def start(self):
