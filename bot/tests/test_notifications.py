@@ -89,3 +89,69 @@ async def test_acknowledge_notification(tmp_path):
     # Verify acknowledgment
     notification = await manager.get_notification(notification_id)
     assert notification["acknowledged_at"] is not None
+
+@pytest.mark.asyncio
+async def test_escalate_notification(tmp_path):
+    """Test escalating notification priority"""
+    from datetime import timedelta
+
+    db_path = tmp_path / "test.db"
+
+    manager = NotificationManager(
+        db_path=str(db_path),
+        ntfy_url="https://ntfy.sh",
+        ntfy_topic="test-topic"
+    )
+
+    await manager.initialize()
+
+    # Track notification sent 6 minutes ago (should escalate to high)
+    six_minutes_ago = datetime.now() - timedelta(minutes=6)
+    notification_id = await manager.track_notification(
+        notification_type="morning_checkin",
+        scheduled_for=six_minutes_ago
+    )
+
+    await manager.mark_as_sent(notification_id)
+
+    # Check if it needs escalation
+    needs_escalation = await manager.needs_escalation(notification_id)
+    assert needs_escalation is True
+
+    # Get escalation priority
+    priority = await manager.get_escalation_priority(notification_id)
+    assert priority == "high"
+
+@pytest.mark.asyncio
+async def test_escalation_levels(tmp_path):
+    """Test different escalation levels based on time"""
+    from datetime import timedelta
+
+    db_path = tmp_path / "test.db"
+
+    manager = NotificationManager(
+        db_path=str(db_path),
+        ntfy_url="https://ntfy.sh",
+        ntfy_topic="test-topic"
+    )
+
+    await manager.initialize()
+
+    # Test each escalation level
+    test_cases = [
+        (3, "default"),   # 3 minutes: no escalation
+        (6, "high"),      # 6 minutes: high priority
+        (11, "urgent"),   # 11 minutes: urgent priority
+        (16, "urgent"),   # 16 minutes: max urgent
+    ]
+
+    for minutes, expected_priority in test_cases:
+        time_ago = datetime.now() - timedelta(minutes=minutes)
+        notification_id = await manager.track_notification(
+            notification_type="test",
+            scheduled_for=time_ago
+        )
+        await manager.mark_as_sent(notification_id)
+
+        priority = await manager.get_escalation_priority(notification_id)
+        assert priority == expected_priority, f"Failed for {minutes} minutes"

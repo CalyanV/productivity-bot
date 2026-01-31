@@ -234,3 +234,132 @@ class NotificationManager:
             priority="high",
             tags=["alarm_clock", "memo"]
         )
+
+    async def needs_escalation(self, notification_id: str) -> bool:
+        """
+        Check if a notification needs escalation
+
+        Returns True if notification was sent but not acknowledged
+        within escalation timeframe
+        """
+        notification = await self.get_notification(notification_id)
+
+        if not notification:
+            return False
+
+        # Already acknowledged
+        if notification["acknowledged_at"]:
+            return False
+
+        # Not yet sent
+        if not notification["sent_at"]:
+            return False
+
+        # Check time since sent
+        sent_at = datetime.fromisoformat(notification["sent_at"])
+        elapsed_minutes = (datetime.now() - sent_at).total_seconds() / 60
+
+        # Escalate after 5 minutes
+        return elapsed_minutes >= 5
+
+    async def get_escalation_priority(self, notification_id: str) -> str:
+        """
+        Get escalation priority based on time since sent
+
+        Escalation levels:
+        - 0-5 minutes: default
+        - 5-10 minutes: high
+        - 10+ minutes: urgent
+        """
+        notification = await self.get_notification(notification_id)
+
+        if not notification or not notification["sent_at"]:
+            return "default"
+
+        # Already acknowledged - no escalation needed
+        if notification["acknowledged_at"]:
+            return "default"
+
+        # Calculate elapsed time
+        sent_at = datetime.fromisoformat(notification["sent_at"])
+        elapsed_minutes = (datetime.now() - sent_at).total_seconds() / 60
+
+        if elapsed_minutes < 5:
+            return "default"
+        elif elapsed_minutes < 10:
+            return "high"
+        else:
+            return "urgent"
+
+    async def escalate_pending_notifications(self) -> int:
+        """
+        Check all pending notifications and escalate if needed
+
+        Returns:
+            Number of notifications escalated
+        """
+        pending = await self.get_pending_notifications()
+        escalated_count = 0
+
+        for notification in pending:
+            notification_id = notification["id"]
+
+            if await self.needs_escalation(notification_id):
+                priority = await self.get_escalation_priority(notification_id)
+
+                # Re-send with higher priority
+                notification_type = notification["type"]
+
+                # Build escalation message
+                elapsed_minutes = int(
+                    (datetime.now() - datetime.fromisoformat(notification["sent_at"]))
+                    .total_seconds() / 60
+                )
+
+                title_prefix = {
+                    "high": "⚠️ REMINDER",
+                    "urgent": "🚨 URGENT"
+                }.get(priority, "")
+
+                title_map = {
+                    "morning_checkin": f"{title_prefix} Morning Check-in",
+                    "periodic_checkin": f"{title_prefix} Quick Check-in",
+                    "evening_review": f"{title_prefix} Evening Review",
+                    "reminder": f"{title_prefix} Reminder"
+                }
+
+                title = title_map.get(notification_type, f"{title_prefix} Notification")
+                message = f"No response for {elapsed_minutes} minutes. Please check in!"
+
+                await self.send_notification(
+                    title=title,
+                    message=message,
+                    priority=priority,
+                    tags=["warning", "loudspeaker"]
+                )
+
+                escalated_count += 1
+                logger.info(
+                    f"Escalated notification {notification_id} to {priority} "
+                    f"(elapsed: {elapsed_minutes}min)"
+                )
+
+        return escalated_count
+
+    async def schedule_escalation_check(self, scheduler):
+        """
+        Schedule periodic escalation checks
+
+        Args:
+            scheduler: Scheduler instance to add job to
+        """
+        from apscheduler.triggers.interval import IntervalTrigger
+
+        scheduler.add_custom_job(
+            job_id="escalation_check",
+            callback=self.escalate_pending_notifications,
+            trigger=IntervalTrigger(minutes=5),
+            name="Notification Escalation Check"
+        )
+
+        logger.info("Scheduled escalation checks every 5 minutes")
