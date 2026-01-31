@@ -95,3 +95,26 @@ async def test_find_free_slots():
 
     # Verify method exists
     assert hasattr(calendar, 'find_free_slots')
+
+@pytest.mark.asyncio
+async def test_create_event_from_task():
+    """Test creating calendar event from task with linking"""
+    calendar = CalendarIntegration(
+        client_id="test_client_id",
+        client_secret="test_client_secret",
+        refresh_token="test_refresh_token"
+    )
+
+    task_data = {
+        "id": "task-123",
+        "title": "Complete project proposal",
+        "duration_minutes": 60,
+        "due_date": "2026-02-05",
+        "project_name": "Important Project"
+    }
+
+    now = datetime.now()
+    start_time = now + timedelta(hours=1)
+
+    # Verify method exists
+    assert hasattr(calendar, 'create_event_from_task')

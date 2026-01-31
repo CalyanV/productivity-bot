@@ -421,3 +421,136 @@ class CalendarIntegration:
 
         logger.info(f"Found {len(free_slots)} free slots for {duration_minutes}min task")
         return free_slots
+
+    async def create_event_from_task(
+        self,
+        task_data: Dict,
+        start_time: datetime,
+        calendar_id: str = 'primary',
+        vault_path: Optional[str] = None
+    ) -> Dict:
+        """
+        Create calendar event from task data with linking
+
+        Args:
+            task_data: Task dictionary with id, title, duration_minutes, etc.
+            start_time: When to schedule the task
+            calendar_id: Calendar ID (default: 'primary')
+            vault_path: Path to Obsidian vault for task link
+
+        Returns:
+            Created event with event_id
+        """
+        task_id = task_data.get('id')
+        title = task_data.get('title', 'Untitled Task')
+        duration_minutes = task_data.get('duration_minutes', 60)
+        project_name = task_data.get('project_name')
+
+        # Calculate end time
+        end_time = start_time + timedelta(minutes=duration_minutes)
+
+        # Build description with task link
+        description_parts = []
+
+        # Link back to Obsidian task
+        if vault_path and task_id:
+            task_link = f"obsidian://open?vault={vault_path}&file=task-{task_id}"
+            description_parts.append(f"📋 Task: {task_link}")
+
+        if project_name:
+            description_parts.append(f"🏗️ Project: {project_name}")
+
+        if task_data.get('context'):
+            description_parts.append(f"\n{task_data['context']}")
+
+        description_parts.append(f"\n---\nTask ID: {task_id}")
+        description_parts.append(f"Estimated duration: {duration_minutes} minutes")
+
+        description = "\n".join(description_parts)
+
+        # Create event
+        event = await self.create_event(
+            summary=f"📋 {title}",
+            start_time=start_time,
+            end_time=end_time,
+            description=description,
+            calendar_id=calendar_id
+        )
+
+        logger.info(f"Created calendar event for task {task_id}: {event['id']}")
+
+        return {
+            'event_id': event['id'],
+            'event_link': event.get('htmlLink'),
+            'start': start_time,
+            'end': end_time,
+            'task_id': task_id
+        }
+
+    async def schedule_task(
+        self,
+        task_data: Dict,
+        preferred_time: Optional[datetime] = None,
+        calendar_id: str = 'primary',
+        vault_path: Optional[str] = None
+    ) -> Dict:
+        """
+        Intelligently schedule a task by finding free time
+
+        Args:
+            task_data: Task dictionary with duration_minutes, due_date, etc.
+            preferred_time: Preferred start time (optional)
+            calendar_id: Calendar ID (default: 'primary')
+            vault_path: Path to Obsidian vault
+
+        Returns:
+            Scheduled event information
+        """
+        duration_minutes = task_data.get('duration_minutes', 60)
+        due_date_str = task_data.get('due_date')
+
+        # Determine search window
+        tz = pytz.timezone(self.timezone)
+        time_min = preferred_time or datetime.now(tz)
+
+        if due_date_str:
+            # Parse due date and set as time_max
+            due_date = datetime.fromisoformat(due_date_str)
+            if due_date.tzinfo is None:
+                due_date = tz.localize(due_date)
+            time_max = due_date
+        else:
+            # Default to 7 days from now
+            time_max = time_min + timedelta(days=7)
+
+        # Find free slots
+        free_slots = await self.find_free_slots(
+            duration_minutes=duration_minutes,
+            time_min=time_min,
+            time_max=time_max,
+            calendar_ids=[calendar_id],
+            max_slots=5
+        )
+
+        if not free_slots:
+            raise ValueError(
+                f"No free slots found for {duration_minutes}min task "
+                f"between {time_min} and {time_max}"
+            )
+
+        # Use first available slot
+        best_slot = free_slots[0]
+        start_time = best_slot['start']
+
+        # Create event
+        result = await self.create_event_from_task(
+            task_data=task_data,
+            start_time=start_time,
+            calendar_id=calendar_id,
+            vault_path=vault_path
+        )
+
+        result['suggested_slots'] = free_slots[:3]  # Return top 3 suggestions
+
+        logger.info(f"Scheduled task {task_data.get('id')} at {start_time}")
+        return result
