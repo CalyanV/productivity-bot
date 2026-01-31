@@ -18,8 +18,13 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TELEGRAM_BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN not set in environment")
 
-# Anthropic
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+# OpenRouter LLM
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+if not OPENROUTER_API_KEY:
+    raise ValueError("OPENROUTER_API_KEY not set in environment")
+
+LLM_MODEL_PRIMARY = os.getenv("LLM_MODEL_PRIMARY", "deepseek/deepseek-chat")
+LLM_MODEL_FALLBACK = os.getenv("LLM_MODEL_FALLBACK", "anthropic/claude-3.5-sonnet")
 
 # Google Calendar
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
