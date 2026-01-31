@@ -12,6 +12,7 @@ from typing import Optional
 from .database import Database
 from .obsidian_sync import ObsidianSync
 from .calendar_integration import CalendarIntegration
+from .people import PeopleManager
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class ProductivityBot:
 
         self.db = Database(db_path)
         self.vault_sync = ObsidianSync(vault_path)
+        self.people_manager = PeopleManager(db_path, vault_path)
 
         # Initialize calendar integration if credentials provided
         self.calendar = None
@@ -67,6 +69,11 @@ class ProductivityBot:
             self.app.add_handler(CommandHandler("schedule", self.cmd_schedule))
             self.app.add_handler(CommandHandler("suggest", self.cmd_suggest))
             self.app.add_handler(CommandHandler("calendar", self.cmd_calendar))
+
+        # People/CRM commands
+        self.app.add_handler(CommandHandler("people", self.cmd_people))
+        self.app.add_handler(CommandHandler("person", self.cmd_person))
+        self.app.add_handler(CommandHandler("contact", self.cmd_contact))
 
         # Messages (for conversation flow)
         self.app.add_handler(
@@ -120,6 +127,11 @@ Let's get organized!"""
 (Calendar integration not configured)"""
 
         message += """
+
+**People & CRM:**
+/people - List all people in your network
+/person <name> - Add or view a person
+/contact <id> - Update last contact date
 
 **Daily Workflow:**
 /morning - Morning check-in
@@ -328,6 +340,157 @@ Other available slots:"""
                 f"❌ Error retrieving calendar: {str(e)}"
             )
 
+    async def cmd_people(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /people command - List all people"""
+        try:
+            await self.people_manager.initialize()
+            people = await self.people_manager.list_people(limit=20)
+
+            if not people:
+                await update.message.reply_text(
+                    "📇 No people in your network yet.\n\n"
+                    "Add someone with: /person John Doe"
+                )
+                return
+
+            message = "📇 **Your Network:**\n\n"
+
+            for person in people:
+                name = person["name"]
+                company = person.get("company", "")
+                role = person.get("role", "")
+
+                info_parts = []
+                if role:
+                    info_parts.append(role)
+                if company:
+                    info_parts.append(f"@ {company}")
+
+                info = " - " + ", ".join(info_parts) if info_parts else ""
+
+                message += f"• {name}{info}\n"
+
+            message += f"\n💡 Use /person <name> to view details"
+
+            await update.message.reply_text(message, parse_mode="Markdown")
+            logger.info(f"Listed {len(people)} people for user {update.effective_user.id}")
+
+        except Exception as e:
+            logger.error(f"Error listing people: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Error listing people: {str(e)}")
+
+    async def cmd_person(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /person command - Add or view a person"""
+        if not context.args:
+            await update.message.reply_text(
+                "Usage:\n"
+                "/person John Doe - Add new person\n"
+                "/person person-abc123 - View person details"
+            )
+            return
+
+        try:
+            await self.people_manager.initialize()
+
+            query = " ".join(context.args)
+
+            # Check if it's a person ID
+            if query.startswith("person-"):
+                person = await self.people_manager.get_person(query)
+
+                if not person:
+                    await update.message.reply_text(f"❌ Person not found: {query}")
+                    return
+
+                # Display person details
+                message = f"**{person['name']}**\n\n"
+
+                if person.get("role"):
+                    message += f"**Role**: {person['role']}\n"
+                if person.get("company"):
+                    message += f"**Company**: {person['company']}\n"
+                if person.get("email"):
+                    message += f"**Email**: {person['email']}\n"
+                if person.get("phone"):
+                    message += f"**Phone**: {person['phone']}\n"
+
+                if person.get("last_contact"):
+                    last_contact = datetime.fromisoformat(person['last_contact'])
+                    message += f"\n**Last Contact**: {last_contact.strftime('%B %d, %Y')}\n"
+
+                message += f"\n**ID**: `{person['id']}`"
+
+                await update.message.reply_text(message, parse_mode="Markdown")
+
+            else:
+                # Search for person or create new
+                results = await self.people_manager.search_people(query)
+
+                if results:
+                    # Show search results
+                    message = f"Found {len(results)} match(es):\n\n"
+
+                    for person in results[:5]:
+                        name = person["name"]
+                        person_id = person["id"]
+                        company = person.get("company", "")
+                        message += f"• {name}"
+                        if company:
+                            message += f" @ {company}"
+                        message += f"\n  ID: `{person_id}`\n"
+
+                    await update.message.reply_text(message, parse_mode="Markdown")
+
+                else:
+                    # Create new person
+                    result = await self.people_manager.create_person({"name": query})
+
+                    await update.message.reply_text(
+                        f"✅ Added {result['name']} to your network!\n\n"
+                        f"ID: `{result['person_id']}`\n\n"
+                        f"Update details with /person {result['person_id']}",
+                        parse_mode="Markdown"
+                    )
+
+                    logger.info(f"Created person: {result['person_id']}")
+
+        except Exception as e:
+            logger.error(f"Error handling person command: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+
+    async def cmd_contact(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /contact command - Update last contact date"""
+        if not context.args:
+            await update.message.reply_text(
+                "Usage: /contact <person_id>\n\n"
+                "Updates last contact date to today."
+            )
+            return
+
+        try:
+            await self.people_manager.initialize()
+
+            person_id = context.args[0]
+            person = await self.people_manager.get_person(person_id)
+
+            if not person:
+                await update.message.reply_text(f"❌ Person not found: {person_id}")
+                return
+
+            # Update last contact
+            await self.people_manager.update_last_contact(person_id)
+
+            await update.message.reply_text(
+                f"✅ Updated last contact for {person['name']}\n"
+                f"Date: {datetime.now().strftime('%B %d, %Y')}"
+            )
+
+            logger.info(f"Updated last contact for {person_id}")
+
+        except Exception as e:
+            logger.error(f"Error updating contact: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle non-command messages"""
         # For now, treat as task add
@@ -341,6 +504,7 @@ Other available slots:"""
     async def initialize(self):
         """Initialize bot (database, etc.)"""
         await self.db.initialize()
+        await self.people_manager.initialize()
         logger.info("Bot initialized")
 
     async def start(self):
