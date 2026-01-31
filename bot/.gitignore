@@ -11,3 +11,5 @@ venv/
 htmlcov/
 .pytest_cache/
 .ruff_cache/
+credentials.json
+.google_credentials
