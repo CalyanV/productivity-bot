@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 import logging
 from .database import Database
 from .obsidian_sync import ObsidianSync
+from .personality import BotPersonality
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,12 @@ class CheckinManager:
 
     def get_morning_checkin_prompt(self) -> str:
         """Get the morning check-in prompt message"""
-        return """🌅 Good morning! Time for your daily check-in.
+        greeting = BotPersonality.get_greeting()
+        encouragement = BotPersonality.get_morning_encouragement()
+
+        return f"""{greeting} Time for your daily check-in.
+
+{encouragement}
 
 **Energy Level** (1-10):
 How are you feeling physically and mentally?
@@ -47,7 +53,9 @@ Reply with your check-in or send voice message!"""
 
     def get_evening_review_prompt(self) -> str:
         """Get the evening review prompt message"""
-        return """🌙 Time for your evening review!
+        reflection = BotPersonality.get_evening_reflection()
+
+        return f"""{reflection}
 
 **Energy Level** (1-10):
 How do you feel now?
@@ -70,7 +78,9 @@ Reply to complete your evening review!"""
 
     def get_periodic_checkin_prompt(self) -> str:
         """Get the periodic check-in prompt"""
-        return """⏰ Quick check-in!
+        reminder_tone = BotPersonality.get_reminder_tone()
+
+        return f"""⏰ {reminder_tone}
 
 **What are you working on right now?**
 

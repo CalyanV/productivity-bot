@@ -13,6 +13,7 @@ from .database import Database
 from .obsidian_sync import ObsidianSync
 from .calendar_integration import CalendarIntegration
 from .people import PeopleManager
+from .personality import BotPersonality
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +84,9 @@ class ProductivityBot:
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
         user = update.effective_user
+        greeting = BotPersonality.get_greeting()
 
-        message = f"""Welcome {user.first_name}! 👋
+        message = f"""{greeting} Welcome {user.first_name}!
 
 I'm your productivity assistant. I'll help you:
 • Capture tasks quickly with natural language
@@ -97,7 +99,7 @@ Get started:
 /tasks - View your tasks
 /help - See all commands
 
-Let's get organized!"""
+{BotPersonality.get_productivity_tip()}"""
 
         await update.message.reply_text(message)
         logger.info(f"New user started bot: {user.id} ({user.first_name})")
@@ -152,9 +154,12 @@ Let's get organized!"""
             return
 
         # For now, just acknowledge (will implement NLP parsing later)
+        message = BotPersonality.get_context_aware_message(
+            "task_created",
+            {"title": task_text}
+        )
         await update.message.reply_text(
-            f"Got it! I'll add:\n\n📋 {task_text}\n\n"
-            "(Task parsing coming in Phase 2!)"
+            f"{message}\n\n(Task parsing coming in Phase 2!)"
         )
 
         logger.info(f"Task add requested: {task_text}")
@@ -226,6 +231,8 @@ Other available slots:"""
                 slot_time = slot['start'].strftime('%I:%M %p')
                 slot_date = slot['start'].strftime('%a %b %d')
                 message += f"\n{i}. {slot_date} at {slot_time}"
+
+            message += f"\n\n{BotPersonality.get_context_aware_message('task_scheduled', {})}"
 
             await update.message.reply_text(message, parse_mode="Markdown")
             logger.info(f"Scheduled task {task_id} for user {update.effective_user.id}")
@@ -445,8 +452,9 @@ Other available slots:"""
                     # Create new person
                     result = await self.people_manager.create_person({"name": query})
 
+                    completion_msg = BotPersonality.get_completion_message()
                     await update.message.reply_text(
-                        f"✅ Added {result['name']} to your network!\n\n"
+                        f"{completion_msg} Added {result['name']} to your network!\n\n"
                         f"ID: `{result['person_id']}`\n\n"
                         f"Update details with /person {result['person_id']}",
                         parse_mode="Markdown"
@@ -480,8 +488,9 @@ Other available slots:"""
             # Update last contact
             await self.people_manager.update_last_contact(person_id)
 
+            completion_msg = BotPersonality.get_completion_message()
             await update.message.reply_text(
-                f"✅ Updated last contact for {person['name']}\n"
+                f"{completion_msg} Updated last contact for {person['name']}\n"
                 f"Date: {datetime.now().strftime('%B %d, %Y')}"
             )
 
